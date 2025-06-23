@@ -5,6 +5,7 @@ from typing import List
 from fastapi import UploadFile
 from pydantic import BaseModel
 import logging
+import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,76 +30,45 @@ class TaskStatusResponse(BaseModel):
 class DocumentService:
     def __init__(self):
         self.db_path = "vectors.db"
-        if not os.path.exists(self.db_path):
-            logger.info(f"Database {self.db_path} not found, creating new database")
-            self._initialize_db()
-        else:
-            logger.info(f"Database {self.db_path} found, using existing database")
         from vector_store import VectorStore
         self.vector_store = VectorStore()
-
-    def _initialize_db(self):
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    CREATE TABLE documents (
-                        document_id TEXT PRIMARY KEY,
-                        file_name TEXT,
-                        status TEXT
-                    )
-                """)
-                cursor.execute("""
-                    CREATE TABLE chunks (
-                        chunk_id TEXT PRIMARY KEY,
-                        text TEXT,
-                        document_id TEXT,
-                        FOREIGN KEY (document_id) REFERENCES documents(document_id)
-                    )
-                """)
-                cursor.execute("""
-                    CREATE TABLE tasks (
-                        task_id TEXT PRIMARY KEY,
-                        file_name TEXT,
-                        status TEXT,
-                        document_id TEXT,
-                        error_message TEXT,
-                        upload_time TEXT,
-                        FOREIGN KEY (document_id) REFERENCES documents(document_id)
-                    )
-                """)
-                conn.commit()
-                logger.info("Database initialized successfully: documents, chunks, tasks tables created")
-        except sqlite3.Error as e:
-            logger.error(f"Failed to initialize database: {e}")
-            raise
 
     async def upload_files(self, files: List[UploadFile]) -> List[str]:
         task_ids = []
         for file in files:
             task_id = str(uuid.uuid4())
             file_name = file.filename
-            content = await file.read()
             try:
+                logger.info(f"Starting upload for file: {file_name}, task_id: {task_id}")
+                content = await file.read()
                 temp_path = f"temp_{task_id}.txt"
                 with open(temp_path, "wb") as f:
                     f.write(content)
                 document_id = str(uuid.uuid4())
-                chunks = self._chunk_text(content.decode("utf-8"))
-                self.vector_store.add_document(document_id, file_name, chunks)
+                logger.info(f"Decoding content for document_id: {document_id}")
+                from data_loader import split_text
+                chunk_dicts = split_text(content.decode("utf-8"), chunk_size=300, overlap=50)
+                chunks = [d["text"] for d in chunk_dicts]
+                chunk_ids = [f"{document_id}_{i}" for i in range(len(chunks))]
+                logger.info(f"Generated {len(chunks)} chunks for document {document_id}")
+                from embedder import Embedder
+                embedder = Embedder()
+                embeddings = embedder.embed(chunks)
+                logger.info(f"Generated {len(embeddings)} embeddings for document {document_id}")
+                logger.info(f"Indexing chunks for document {document_id}")
+                self.vector_store.add_document(document_id, file_name, chunks, chunk_ids)
                 self._save_document(document_id, file_name, "completed")
-                self._save_chunks(document_id, chunks)
-                self._save_task(task_id, file_name, "completed", document_id)
+                self._save_chunks(document_id, chunk_dicts, embeddings)
+                self._save_task_status(task_id, file_name, "completed", document_id)
                 task_ids.append(task_id)
                 os.remove(temp_path)
+                logger.info(f"Upload completed for file: {file_name}, document_id: {document_id}")
             except Exception as e:
                 self._save_task_status(task_id, file_name, "failed", None, str(e))
                 logger.error(f"Upload failed for {file_name}: {e}")
                 raise
+        logger.info(f"Upload completed: {len(task_ids)} files processed")
         return task_ids
-
-    def _chunk_text(self, text: str) -> List[str]:
-        return [text[i:i+500] for i in range(0, len(text), 500)]
 
     def _save_document(self, document_id: str, file_name: str, status: str):
         try:
@@ -109,21 +79,23 @@ class DocumentService:
                     (document_id, file_name, status)
                 )
                 conn.commit()
+                logger.info(f"Saved document {document_id}")
         except sqlite3.Error as e:
             logger.error(f"Failed to save document {document_id}: {e}")
             raise
 
-    def _save_chunks(self, document_id: str, chunks: List[str]):
+    def _save_chunks(self, document_id: str, chunk_dicts: List[dict], embeddings: np.ndarray):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                for idx, text in enumerate(chunks):
+                for idx, (chunk_dict, embedding) in enumerate(zip(chunk_dicts, embeddings)):
                     chunk_id = f"{document_id}_{idx}"
                     cursor.execute(
-                        "INSERT INTO chunks (chunk_id, text, document_id) VALUES (?, ?, ?)",
-                        (chunk_id, text, document_id)
+                        "INSERT INTO chunks (chunk_id, text, document_id, embedding) VALUES (?, ?, ?, ?)",
+                        (chunk_id, chunk_dict["text"], document_id, embedding.tobytes())
                     )
                 conn.commit()
+                logger.info(f"Saved {len(chunk_dicts)} chunks for document {document_id}")
         except sqlite3.Error as e:
             logger.error(f"Failed to save chunks for document {document_id}: {e}")
             raise
@@ -140,6 +112,7 @@ class DocumentService:
                     (task_id, file_name, status, document_id, error)
                 )
                 conn.commit()
+                logger.info(f"Saved task status {task_id}")
         except sqlite3.Error as e:
             logger.error(f"Failed to save task status {task_id}: {e}")
             raise

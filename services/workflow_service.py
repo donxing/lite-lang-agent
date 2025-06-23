@@ -18,32 +18,8 @@ class ExecuteWorkflowResponse(BaseModel):
 class WorkflowService:
     def __init__(self):
         self.db_path = "workflows.db"
-        if not os.path.exists(self.db_path):
-            logger.info(f"Database {self.db_path} not found, creating new database")
-            self._initialize_db()
-        else:
-            logger.info(f"Database {self.db_path} found, using existing database")
         from workflow_manager import WorkflowManager
         self.workflow_manager = WorkflowManager()
-
-    def _initialize_db(self):
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    CREATE TABLE workflows (
-                        workflow_id TEXT PRIMARY KEY,
-                        name TEXT,
-                        status TEXT,
-                        workflow_json TEXT,
-                        metadata TEXT
-                    )
-                """)
-                conn.commit()
-                logger.info("Database initialized successfully: workflows table created")
-        except sqlite3.Error as e:
-            logger.error(f"Failed to initialize database: {e}")
-            raise
 
     async def upload_workflow(self, name: str, workflow_json: Dict[str, Any], metadata: Dict[str, Any]) -> WorkflowResponse:
         try:

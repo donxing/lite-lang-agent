@@ -1,16 +1,32 @@
 from sentence_transformers import SentenceTransformer
 import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class Embedder:
-    def __init__(self, model_path=None):
-        # 默认路径为你的本地模型路径
-        if model_path is None:
-            model_path = "/Users/heelgoed/.cache/modelscope/hub/models/sentence-transformers/all-MiniLM-L6-v2"
-        
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"模型路径不存在: {model_path}")
-        
-        self.model = SentenceTransformer(model_path)
+    def __init__(self):
+        try:
+            from config import CONFIG
+            model_path = CONFIG["embedder_model_path"]
+            model_name = CONFIG["embedder_model_name"]
+            if os.path.exists(model_path):
+                logger.info(f"Loading model from {model_path}")
+                self.model = SentenceTransformer(model_path)
+            else:
+                logger.warning(f"Model path {model_path} not found, downloading {model_name}")
+                self.model = SentenceTransformer(model_name)
+            logger.info("Embedder initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Embedder: {e}")
+            raise
 
     def embed(self, texts):
-        return self.model.encode(texts, convert_to_numpy=True)
+        try:
+            embeddings = self.model.encode(texts, convert_to_numpy=True)
+            logger.info(f"Embedded {len(texts) if isinstance(texts, list) else 1} texts")
+            return embeddings
+        except Exception as e:
+            logger.error(f"Failed to embed texts: {e}")
+            raise

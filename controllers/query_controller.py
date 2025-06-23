@@ -1,38 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from services.query_service import QueryService
 from typing import List
+from services.query_service import QueryService, QueryResponse, ContextChunk
 
 router = APIRouter()
 
 class QueryRequest(BaseModel):
     query: str
     top_k: int = 3
+    llm_model: str | None = None
+    llm_provider: str | None = None
 
-class ContextChunk(BaseModel):
-    chunk_id: str
-    text: str
-    document_id: str
-    score: float
+@router.post("/query")
+async def query(request: QueryRequest, query_service: QueryService = Depends()):
+    return await query_service.execute_query(request.query, request.top_k, request.llm_model, request.llm_provider)
 
-class QueryResponse(BaseModel):
-    query: str
-    answer: str
-    context: List[ContextChunk]
-
-def get_query_service():
-    return QueryService()
-
-@router.post("/query", response_model=QueryResponse)
-async def query_rag(request: QueryRequest, service: QueryService = Depends(get_query_service)):
-    try:
-        return await service.execute_query(request.query, request.top_k)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.post("/recall", response_model=List[ContextChunk])
-async def recall_rag(request: QueryRequest, service: QueryService = Depends(get_query_service)):
-    try:
-        return await service.recall(request.query, request.top_k)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+@router.post("/recall")
+async def recall(request: QueryRequest, query_service: QueryService = Depends()):
+    return await query_service.recall(request.query, request.top_k)
