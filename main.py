@@ -1,6 +1,6 @@
 import argparse
 import uvicorn
-from webservice import app
+from app import app
 
 def main():
     parser = argparse.ArgumentParser(description="Lite RAG Web Service")
