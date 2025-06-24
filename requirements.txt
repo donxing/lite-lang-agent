@@ -1,0 +1,12 @@
+fastapi==0.115.13
+langchain==0.3.26
+networkx==3.5
+numpy==2.3.1
+pdfplumber==0.11.7
+pydantic==2.11.7
+Requests==2.32.4
+scikit_learn==1.7.0
+sentence_transformers==4.1.0
+spacy==3.8.7
+storage==0.0.4.3
+uvicorn==0.34.3
