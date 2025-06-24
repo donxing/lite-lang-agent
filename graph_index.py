@@ -12,12 +12,14 @@ class GraphRAGRetriever:
         try:
             from embedder import Embedder
             from config import CONFIG
+            from knowledge_graph import KnowledgeGraph
             self.embedder = Embedder()
             self.graph = nx.Graph()
             self.chunk_data: Dict[str, Dict] = {}
             self.db_path = CONFIG["vectors_db_path"]
+            self.knowledge_graph = KnowledgeGraph()
             self._load_from_db()
-            logger.info("GraphRAGRetriever initialized with Embedder")
+            logger.info("GraphRAGRetriever initialized with Embedder and KnowledgeGraph")
         except ImportError as e:
             logger.error(f"Failed to initialize GraphRAGRetriever: {e}")
             raise
@@ -38,7 +40,6 @@ class GraphRAGRetriever:
                         "score": 1.0
                     }
                     self.graph.add_node(chunk_id, text=text, embedding=embedding, document_id=document_id)
-                    # Add edges between consecutive chunks in the same document
                     doc_chunks = [row[0] for row in rows if row[2] == document_id]
                     idx = doc_chunks.index(chunk_id)
                     if idx > 0:
@@ -51,7 +52,6 @@ class GraphRAGRetriever:
 
     def index(self, document_id: str, file_name: str, chunks: List[str], chunk_ids: List[str]):
         try:
-            # Embed chunks
             embeddings = self.embedder.embed(chunks)
             for idx, (text, embedding, chunk_id) in enumerate(zip(chunks, embeddings, chunk_ids)):
                 self.graph.add_node(chunk_id, text=text, embedding=embedding, document_id=document_id)
@@ -62,7 +62,6 @@ class GraphRAGRetriever:
                     "embedding": embedding,
                     "score": 1.0
                 }
-                # Add edges between consecutive chunks
                 if idx > 0:
                     prev_chunk_id = chunk_ids[idx-1]
                     self.graph.add_edge(chunk_id, prev_chunk_id, weight=1.0)
@@ -78,6 +77,8 @@ class GraphRAGRetriever:
                 return []
             # Embed query
             query_embedding = self.embedder.embed([query])[0]
+            # Get related chunks from knowledge graph
+            kg_chunk_ids = self.knowledge_graph.get_related_chunks(query, top_k)
             # Compute similarities
             similarities = {}
             for chunk_id, data in self.chunk_data.items():
@@ -85,6 +86,9 @@ class GraphRAGRetriever:
                 similarity = np.dot(chunk_embedding, query_embedding) / (
                     np.linalg.norm(chunk_embedding) * np.linalg.norm(query_embedding)
                 )
+                # Boost similarity if chunk is in knowledge graph results
+                if chunk_id in kg_chunk_ids:
+                    similarity *= 1.2  # Boost factor
                 similarities[chunk_id] = similarity
             # Rank and select top_k chunks
             sorted_chunks = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
@@ -92,7 +96,6 @@ class GraphRAGRetriever:
             for chunk_id, score in sorted_chunks:
                 chunk = self.chunk_data[chunk_id].copy()
                 chunk["score"] = float(score)
-                # Boost score for connected chunks
                 neighbors = list(self.graph.neighbors(chunk_id))
                 chunk["score"] *= (1 + 0.1 * len(neighbors))
                 results.append(chunk)

@@ -11,10 +11,12 @@ class RAGPipeline:
         try:
             self.retriever = retriever
             from config import CONFIG
+            from knowledge_graph import KnowledgeGraph
             self.ollama_api_url = CONFIG["ollama_api_url"]
             self.lmstudio_api_url = CONFIG["lmstudio_api_url"]
             self.default_llm_model = CONFIG["default_llm_model"]
             self.default_llm_provider = CONFIG["default_llm_provider"]
+            self.knowledge_graph = KnowledgeGraph()
             logger.info(f"RAGPipeline initialized with default provider: {self.default_llm_provider}")
         except ImportError as e:
             logger.error(f"Failed to initialize RAGPipeline: {e}")
@@ -22,7 +24,6 @@ class RAGPipeline:
 
     def answer(self, query: str, top_k: int = 3, llm_model: str = None, llm_provider: str = None) -> Dict:
         try:
-            # Use specified or default model/provider
             model = llm_model or self.default_llm_model
             provider = llm_provider or self.default_llm_provider
             logger.info(f"Using LLM: {model}, provider: {provider}")
@@ -33,9 +34,17 @@ class RAGPipeline:
                 logger.warning(f"No chunks retrieved for query: {query[:50]}...")
                 return {"answer": "No relevant information found.", "context": []}
 
+            # Get knowledge graph context
+            kg_chunk_ids = self.knowledge_graph.get_related_chunks(query, top_k)
+            kg_context = []
+            for chunk_id in kg_chunk_ids:
+                if chunk_id in self.retriever.chunk_data:
+                    kg_context.append(self.retriever.chunk_data[chunk_id]["text"])
+
             # Prepare context and prompt
             context = "\n".join([chunk["text"] for chunk in chunks])
-            prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer: "
+            kg_context_str = "\n".join(kg_context) if kg_context else "No additional knowledge graph context."
+            prompt = f"Context: {context}\nKnowledge Graph Context: {kg_context_str}\n\nQuestion: {query}\n\nAnswer: "
 
             # Call LLM API
             if provider == "ollama":

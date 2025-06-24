@@ -9,7 +9,6 @@ CONFIG = {
     "default_llm_model": "llama3.2:3b",
     "default_llm_provider": "ollama",
     "vectors_db_path": "vectors.db",
-    "workflows_db_path": "workflows.db",
     "chunk_size": 300,
     "chunk_overlap": 50
 }

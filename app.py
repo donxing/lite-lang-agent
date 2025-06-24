@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from controllers import document_controller, query_controller, workflow_controller
+from controllers import document_controller, query_controller
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +20,6 @@ app.add_middleware(
 # Include routers
 app.include_router(document_controller.router, prefix="/api/v1")
 app.include_router(query_controller.router, prefix="/api/v1")
-app.include_router(workflow_controller.router, prefix="/api/v1")
 
 # Initialize databases on startup
 @app.on_event("startup")
